@@ -27,39 +27,45 @@ const Person = ({name, url, selected, onClickHandler}) => {
 const People = ({people, selected, onSelectCharacter}) => {
   if (people.results) {
     return (
-        <div>
-            {people.results.map((character) => (
-                <Person key={character.name} name={character.name} url={character.url} selected={character.name === selected ? true : false} onClickHandler={onSelectCharacter} />
-            ))}
-        </div>
+      <div>
+        {people.results.map((character) => (
+          <Person key={character.name} name={character.name} url={character.url} selected={character.name === selected ? true : false} onClickHandler={onSelectCharacter} />
+        ))}
+      </div>
     )
   } else return null;
 };
 
 function PaginatorButton(props) {
-    const direction = props.next ? '>' : '<';
-
-    return (
-      <button className="button-paginator" onClick={() => props.onChangePage(props.url)}> 
-        {direction} 
-      </button>
-    );  
+  return (
+    <button className={"button-paginator " + (props.current ? "button-current" : "")} onClick={() => props.onChangePage(props.url, props.label)}> 
+      {props.label} 
+    </button>
+  );  
 }
 
 class Paginator extends Component {
-  constructor(props) {
-    super(props);
-  }
 
-  handleSelectCharacter= (name, url) => {
+  handleSelectCharacter = (name, url) => {
     this.props.onSelectCharacter(name, url);
   }
 
   render() {
     const data = this.props.people;
     const character = this.props.characterSelected;
-    const previous = data.previous ? <PaginatorButton url={data.previous} onChangePage={(url) => this.props.onChangePage(url)} /> : "";
-    const next = data.next ? <PaginatorButton url={data.next} next={1} onChangePage={(url) => this.props.onChangePage(url)} /> : "";
+    const total_characters = data.count;
+    const n_pages = Math.ceil(total_characters / 10);
+
+    const previous = data.previous ? <PaginatorButton url={data.previous} label="<" onChangePage={(url, page) => this.props.onChangePage(url, page)} /> : "";
+    const next = data.next ? <PaginatorButton url={data.next} label=">" onChangePage={(url, page) => this.props.onChangePage(url, page)} /> : "";
+    const pages = [];
+
+    for (var i=1; i<n_pages+1; i++) {
+      const url = "http://swapi.dev/api/people/?page=" + i;
+      const current = this.props.current_page === i ? true : false;
+
+      pages.push(<PaginatorButton key={i} current={current} url={url} label={i} onChangePage={(url, page) => this.props.onChangePage(url, page)} />);
+    }
 
     const content = this.props.loading ? <div className="loader"/> : <People people={data} selected={character} onSelectCharacter={this.handleSelectCharacter} />;
 
@@ -69,6 +75,7 @@ class Paginator extends Component {
         
         <div className="paginator-buttons">
           {previous}
+          {pages}
           {next}
         </div>
       </div>
@@ -100,7 +107,7 @@ const CharacterHeader = ({name, height, mass}) => {
 
 const FilmButton = ({title, url, onClickHandler}) => {
   return (
-    <button className="button" onClick={() => onClickHandler(url)}>{title}</button>
+    <button className="button-film" onClick={() => onClickHandler(url)}>{title}</button>
   );
 }
 
@@ -121,15 +128,14 @@ const CharacterBody = ({data, films, onFilmClick}) => {
   const film_buttons = data.films.map((film) => {
     let title = films[film] ? films[film].title : "?";
     return (
-      <div>
-        <FilmButton key={film} title={title} url={film} onClickHandler={onFilmClick} />
-      </div>
+      <FilmButton key={film} title={title} url={film} onClickHandler={onFilmClick} />
     );
   });
 
   return (
     <div className="character-body">
       <div>
+        <p>Birth Year</p> {data.birth_year}
         <p>Skin</p> {data.skin_color}
         <p>Hair</p> {data.hair_color}
         <p>Eyes</p> {data.eye_color}
@@ -167,13 +173,17 @@ class Character extends Component {
       })
   }
   componentDidUpdate(prevProps, prevState) {
-    if (prevState.character !== this.state.character) {
+    if (prevProps.url !== this.props.url) {
+      this.setState({
+        loading: true
+      })
       fetch(this.props.url)
         .then(res => res.json())
         .then((data) => {
           this.setState({
             character: data,
-            loading: false
+            loading: false,
+            active_film: null
           })
         })
     }
@@ -189,8 +199,8 @@ class Character extends Component {
     let films = this.state.films;
     let film_is_cached = false;
 
-    for (var i in films) {
-      if (films[i].url === url) {
+    for (var f in films) {
+      if (f === url) {
         film_is_cached = true;
         break;
       }
@@ -202,6 +212,9 @@ class Character extends Component {
       });
     } 
     else {
+      this.setState({
+        loading: true
+      })
       fetch(url)
         .then(res => res.json())
         .then((data) => {
@@ -210,13 +223,22 @@ class Character extends Component {
 
           this.setState({
             films: films,
-            active_film: url
+            active_film: url,
+            loading: false
           })
         })
     }
   }
 
   render() {
+    if (this.state.loading) {
+      return (
+        <div className="more"> 
+          <div className="loader"/>
+        </div>
+      );
+    }
+
     const character = this.state.character;
     const active_film = this.state.active_film;
     const films = this.state.films;
@@ -224,7 +246,7 @@ class Character extends Component {
 
     if (active_film) {
       body = <div>
-        <button className="button-back" onClick={this.handleCloseFilm}>Go back</button>
+        <button className="button-back" onClick={this.handleCloseFilm}>Back to character</button>
         <FilmBody data={films[active_film]} />
         </div>;
     }
@@ -253,7 +275,8 @@ class App extends Component {
         people: [],
         selected: [null, null],
         loading: true,
-        fetch_error: null
+        fetch_error: null,
+        current_page: null
     }
   }
   
@@ -263,7 +286,8 @@ class App extends Component {
       .then((data) => {
         this.setState({ 
           people: data,
-          loading: false
+          loading: false,
+          current_page: 1
         })
       })
       .catch(function(error) {
@@ -273,17 +297,20 @@ class App extends Component {
       })
   }
 
-  handleChangePage = (url) => {
+  handleChangePage = (url, page) => {
     this.setState({
       loading: true
     });
+
+    const page_number = page === "<" ? this.state.current_page-1 : page === ">" ? this.state.current_page+1 : page;
 
     fetch(url)
       .then(res => res.json())
       .then((data) => {
         this.setState({ 
           people: data,
-          loading: false
+          loading: false,
+          current_page: page_number
         })
       })
       .catch(function(error) {
@@ -306,7 +333,11 @@ class App extends Component {
   }
 
   render() {
-    const paginator = this.state.fetch_error ? <FetchError />: <Paginator loading={this.state.loading} people={this.state.people} characterSelected={this.state.selected[0]} onChangePage={this.handleChangePage} onSelectCharacter={this.handleSelectCharacter} />;
+    const name = this.state.selected[0];
+    const url = this.state.selected[1];
+    const current_page = this.state.current_page;
+
+    const paginator = this.state.fetch_error ? <FetchError />: <Paginator loading={this.state.loading} people={this.state.people} characterSelected={name} current_page={current_page} onChangePage={this.handleChangePage} onSelectCharacter={this.handleSelectCharacter} />;
 
     return (
       <div>
@@ -315,8 +346,8 @@ class App extends Component {
         <div>
           {paginator}
 
-          {this.state.selected[1] && 
-            <Character url={this.state.selected[1]} onClose={this.handleCloseCharacter} />}
+          {url && 
+            <Character url={url} onClose={this.handleCloseCharacter} />}
         </div>
       </div>
     );
